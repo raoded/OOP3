@@ -1,6 +1,7 @@
 package Solution;
 
 import Provided.*;
+import org.junit.ComparisonFailure;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
@@ -9,6 +10,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -21,6 +23,10 @@ public class StoryTesterImpl implements StoryTester {
             throw new IllegalArgumentException();
 
         try {
+            boolean isWhenSequence = false;
+            Object oldInst;
+            List<String> whenSequence = new LinkedList<>();
+
             //first, we create an instance of testClass to invoke our methods
             Object inst = testClass.getDeclaredConstructor().newInstance();
 
@@ -31,22 +37,18 @@ public class StoryTesterImpl implements StoryTester {
                 Class<?> anno = getAnnotationType(sentence);
 
                 if (anno == Given.class) {
-                    Method m = getAnnotatedMethodFromAncestors((Class<? extends Annotation>) anno, testClass, sentence);
-                    Object[] args = getParametersOfAnnotation(sentence);
+                    runGiven(sentence,testClass,inst);
+                } else if (anno == When.class) {
+                    isWhenSequence = true;
 
-                    m.invoke(inst,args);
+                    ((LinkedList<String>) whenSequence).addLast(sentence);
+                } else if(anno == Then.class) {
+                    isWhenSequence = false;
+                    oldInst = cloneObject(inst,testClass);
+                    runWhens((LinkedList<String>) whenSequence,testClass,inst);
+                    whenSequence.clear();
 
-                    //.invoke(inst);
-                }
-
-                if (anno == When.class) {
-                    try {
-                        getAnnotatedMethodFromAncestors((Class<? extends Annotation>) anno, testClass, sentence).invoke(inst);
-                    } catch (NoSuchMethodException e) {
-                        throw new WhenNotFoundException();
-                    }
-
-
+                    runThen()
                 }
 
             }
@@ -102,19 +104,104 @@ public class StoryTesterImpl implements StoryTester {
         //final Given given = getInstanceOfGivenAnnotation("");
 
         //now, we want to search for that annotation
-        List<Method> methods = stream(c.getMethods())
-                .filter(m->m.isAnnotationPresent(annotation))
-                .filter(m->annotationIsEqual(m.getAnnotation(annotation).value,valueS))
-                .collect(Collectors.toList());
+        List<Method> methods = stream(c.getDeclaredMethods()).collect(Collectors.toList());
 
+        //TODO : need to check how to use 'value' field inside the annotations
+
+        //we need to set all methods to be accessible since out method can be private or protected
+        for (Method m : methods) {
+            //Given g = (Given) m.getAnnotation(annotation);
+            //g.value();
+            m.setAccessible(true);
+        }
+
+        //now we filter out the unwanted methods (those without the right primer annotation
+        //if there is a match the list should be of size 1, if not it should be 0
+        methods = methods.stream().filter(m->m.isAnnotationPresent(annotation)).collect(Collectors.toList());
+        //.filter(m->annotationIsEqual((annotation)m.getAnnotation(annotation).value(),valueS)))
+
+        for(Method m : methods) {
+            Annotation anno = m.getAnnotation(annotation);
+            if(annotationEqualHandler(anno,valueS,m))
+            if(anno instanceof Given) {
+
+            }
+        }
         if(methods.size() == 0) {
+            //if our super class is Object then there is no where else to search
+            //TODO : we need to see that this is indeed the STOP condition for this search
             if(c.getSuperclass() == Object.class) {
                 throw new NoSuchMethodException();
             }
+            //in this case the list is empty so we search recursively in our super class (of test class)
             return getAnnotatedMethodFromAncestors(annotation, c.getSuperclass(), valueS);
         } else {
             return methods.get(0);
         }
+    }
+
+    private static boolean annotationEqualHandler(Annotation anno, String valueS, Method m) {
+
+
+        return true;
+    }
+
+    //this method searches and runs a single sentence
+    private static void runSentence(Class<? extends Annotation> annotation, String sentence, Class<?> testClass, Object inst) throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+        //finding the method
+        Method m = getAnnotatedMethodFromAncestors(annotation, testClass, sentence);
+
+        //I think we did this already - but just in case
+        m.setAccessible(true);
+
+        //getting the parameters and putting them in Object[] with their original types (String/int)
+        Object[] args = getParametersOfAnnotation(sentence);
+
+        m.invoke(inst, args);
+    }
+
+    //This method searches a method of type Given annotation, given a sentence to run and runs it
+    private static void runGiven(String sentence, Class<?> testClass, Object inst) throws NoSuchMethodException, GivenNotFoundException {
+        try {
+            runSentence(Given.class, sentence, testClass, inst);
+        } catch(NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                throw new GivenNotFoundException();
+        }
+    }
+
+    //This method searches each When annotated method of type When annotation, given a list of sequential sentences of When type and runs them
+    private static void runWhens(LinkedList<String> sentences, Class<?> testClass, Object inst) throws NoSuchMethodException, WhenNotFoundException{
+        try {
+            for (String sentence : sentences) {
+                runSentence(When.class, sentence,testClass,inst);
+            }
+        } catch(NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+            throw new WhenNotFoundException();
+        }
+    }
+
+    //This method searches a method of type Then annotation, given a sentence to run and runs it by the Then sentence methodology
+    private static void runThen(String sentence, Class<?> testClass, Object inst, Object oldInst) throws NoSuchMethodException, ThenNotFoundException{
+        String[] splitInvocations = sentence.split("or");
+
+        for (String currentInvocationSentence : splitInvocations) {
+            try{
+                runSentence(Then.class, sentence, testClass, inst);
+
+                //once we succeed it means that Then clause was fulfilled - we can break our attempts in this stage
+                // and go back without rolling back to the old instance
+                return;
+            }
+            catch (ComparisonFailure e) {
+                //TODO: need to add implementation regarding failure of Then invocations
+            }
+            catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
+                throw new ThenNotFoundException();
+            }
+        }
+
+        //if all Then clause attempts failed - we roll back to our old instance that was cloned
+        inst = oldInst;
     }
 
     //This method return the parameters of a certain sentence in an Object[] format
@@ -151,26 +238,6 @@ public class StoryTesterImpl implements StoryTester {
             }
         }
     }
-
-    /*
-    //This is a constructor of a '@Given' annotation 
-    Given getInstanceOfGivenAnnotation(final String s) {
-        Given anno = new Given(){
-            public Class<? extends Annotation> annotationType() {
-                Field f = anno.getClass().getField("value");
-                f.setAccessible(true);
-                try {
-                    f.set(anno.value, s);
-                } catch (IllegalAccessException e) {
-                    e.printStackTrace();
-                }
-                return Given.class;
-            }
-        };
-
-        return anno;
-    }
-    */
 
     private static void runStory(List<String> story,  Class<?> testClass)
             throws IllegalAccessException, InstantiationException, WordNotFoundException {
