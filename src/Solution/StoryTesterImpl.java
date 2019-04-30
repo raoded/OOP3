@@ -9,7 +9,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -17,15 +16,17 @@ import java.util.stream.Collectors;
 import static java.util.Arrays.*;
 
 public class StoryTesterImpl implements StoryTester {
+    private static boolean isAnyThenFailed = false;
+
     @Override
-    public void testOnInheritanceTree(String story, Class<?> testClass) throws WordNotFoundException, NoSuchMethodException {
+    public void testOnInheritanceTree(String story, Class<?> testClass)
+            throws WordNotFoundException, NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException, StoryTestExceptionImpl {
         if(story == null || testClass == null)
             throw new IllegalArgumentException();
 
         try {
-            boolean isWhenSequence = false;
             Object oldInst;
-            List<String> whenSequence = new LinkedList<>();
+            LinkedList<String> whenSequence = new LinkedList<>();
 
             //first, we create an instance of testClass to invoke our methods
             Object inst = testClass.getDeclaredConstructor().newInstance();
@@ -39,24 +40,31 @@ public class StoryTesterImpl implements StoryTester {
                 if (anno == Given.class) {
                     runGiven(sentence,testClass,inst);
                 } else if (anno == When.class) {
-                    isWhenSequence = true;
-
-                    ((LinkedList<String>) whenSequence).addLast(sentence);
+                    //in this case we dont invoke the When sentences until they are all read sequentially
+                    //we save all the When sentences in a list until the next Then sentence
+                    whenSequence.addLast(sentence);
                 } else if(anno == Then.class) {
-                    isWhenSequence = false;
+                    //now we save the old instance of the testClass before invoking the When annotated methods
                     oldInst = cloneObject(inst,testClass);
-                    runWhens((LinkedList<String>) whenSequence,testClass,inst);
+
+                    //now we run the entire When sentences that were read so far
+                    runWhens(whenSequence,testClass,inst);
+
+                    //after invoking them, we clear the list for the next run
                     whenSequence.clear();
 
-                    runThen()
+                    //now we can run the current Then sentence - this call returns the instance accordingly to success of the Then clause (oldInst if failed)
+                    inst = runThen(sentence,testClass,inst,oldInst);
                 }
 
             }
-        } catch(Exception e) {
+        } catch(WordNotFoundException | IllegalAccessException | InvocationTargetException | InstantiationException e) {
             //TODO : What is neede to throw here?
+            throw e;
         }
 
-        //TODO : needs to be implemented
+        if(isAnyThenFailed)
+            throw new StoryTestExceptionImpl();
     }
 
     @Override
@@ -100,50 +108,46 @@ public class StoryTesterImpl implements StoryTester {
      */
     private static Method getAnnotatedMethodFromAncestors(Class<? extends Annotation> annotation, Class c, String valueS)
             throws NoSuchMethodException {
-        //first, we make an instance of the current annotation we are looking for up the inheritance tree
-        //final Given given = getInstanceOfGivenAnnotation("");
-
         //now, we want to search for that annotation
         List<Method> methods = stream(c.getDeclaredMethods()).collect(Collectors.toList());
 
-        //TODO : need to check how to use 'value' field inside the annotations
-
-        //we need to set all methods to be accessible since out method can be private or protected
+        //we need to set all methods to be accessible since our method can be private or protected
         for (Method m : methods) {
-            //Given g = (Given) m.getAnnotation(annotation);
-            //g.value();
             m.setAccessible(true);
         }
 
         //now we filter out the unwanted methods (those without the right primer annotation
-        //if there is a match the list should be of size 1, if not it should be 0
         methods = methods.stream().filter(m->m.isAnnotationPresent(annotation)).collect(Collectors.toList());
-        //.filter(m->annotationIsEqual((annotation)m.getAnnotation(annotation).value(),valueS)))
 
         for(Method m : methods) {
             Annotation anno = m.getAnnotation(annotation);
-            if(annotationEqualHandler(anno,valueS,m))
-            if(anno instanceof Given) {
+            if(annotationEqualHandler(anno,valueS)) {
+                return m;
+            }
+        }
 
-            }
+        //if this returns null then (c == Object.class) so there is no more classes to observe up the inheritance tree
+        if(c.getSuperclass() == null) {
+            throw new NoSuchMethodException();
         }
-        if(methods.size() == 0) {
-            //if our super class is Object then there is no where else to search
-            //TODO : we need to see that this is indeed the STOP condition for this search
-            if(c.getSuperclass() == Object.class) {
-                throw new NoSuchMethodException();
-            }
-            //in this case the list is empty so we search recursively in our super class (of test class)
-            return getAnnotatedMethodFromAncestors(annotation, c.getSuperclass(), valueS);
-        } else {
-            return methods.get(0);
-        }
+        //in this case the list is empty so we search recursively in our super class (of test class)
+        return getAnnotatedMethodFromAncestors(annotation, c.getSuperclass(), valueS);
     }
 
-    private static boolean annotationEqualHandler(Annotation anno, String valueS, Method m) {
+    private static boolean annotationEqualHandler(Annotation anno, String valueS) {
+        if(anno instanceof Given) {
+            return annotationIsEqual(((Given) anno).value(),valueS);
+        }
 
+        if(anno instanceof When) {
+            return annotationIsEqual(((When) anno).value(),valueS);
+        }
 
-        return true;
+        if(anno instanceof Then) {
+            return annotationIsEqual(((Then) anno).value(),valueS);
+        }
+
+        return false;
     }
 
     //this method searches and runs a single sentence
@@ -161,7 +165,7 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     //This method searches a method of type Given annotation, given a sentence to run and runs it
-    private static void runGiven(String sentence, Class<?> testClass, Object inst) throws NoSuchMethodException, GivenNotFoundException {
+    private static void runGiven(String sentence, Class<?> testClass, Object inst) throws GivenNotFoundException {
         try {
             runSentence(Given.class, sentence, testClass, inst);
         } catch(NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
@@ -170,7 +174,7 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     //This method searches each When annotated method of type When annotation, given a list of sequential sentences of When type and runs them
-    private static void runWhens(LinkedList<String> sentences, Class<?> testClass, Object inst) throws NoSuchMethodException, WhenNotFoundException{
+    private static void runWhens(LinkedList<String> sentences, Class<?> testClass, Object inst) throws WhenNotFoundException{
         try {
             for (String sentence : sentences) {
                 runSentence(When.class, sentence,testClass,inst);
@@ -181,16 +185,22 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     //This method searches a method of type Then annotation, given a sentence to run and runs it by the Then sentence methodology
-    private static void runThen(String sentence, Class<?> testClass, Object inst, Object oldInst) throws NoSuchMethodException, ThenNotFoundException{
-        String[] splitInvocations = sentence.split("or");
+    private static Object runThen(String sentence, Class<?> testClass, Object inst, Object oldInst) throws ThenNotFoundException{
+        String[] splitInvocations = sentence.split("or ");
+
+        //now we remove all the instances of the word "or " from our sentences (we dont need it for the annotation searching
+        //"or " is the last word of each sub-sentence except the last one
+        for (int i = 0; i<splitInvocations.length-1; ++i) {
+            splitInvocations[i] = splitInvocations[i].substring(splitInvocations[i].lastIndexOf(" ") + 1);
+        }
 
         for (String currentInvocationSentence : splitInvocations) {
             try{
-                runSentence(Then.class, sentence, testClass, inst);
+                runSentence(Then.class, currentInvocationSentence, testClass, inst);
 
                 //once we succeed it means that Then clause was fulfilled - we can break our attempts in this stage
                 // and go back without rolling back to the old instance
-                return;
+                return inst;
             }
             catch (ComparisonFailure e) {
                 //TODO: need to add implementation regarding failure of Then invocations
@@ -201,7 +211,9 @@ public class StoryTesterImpl implements StoryTester {
         }
 
         //if all Then clause attempts failed - we roll back to our old instance that was cloned
-        inst = oldInst;
+        isAnyThenFailed = true;
+
+        return oldInst;
     }
 
     //This method return the parameters of a certain sentence in an Object[] format
@@ -222,8 +234,6 @@ public class StoryTesterImpl implements StoryTester {
         return objects;
     }
 
-
-
     //this method returns the type of the annotation associated with the string involved
     private static Class<?> getAnnotationType(String valueS) {
         String[] anoType = valueS.split(" ");
@@ -237,14 +247,6 @@ public class StoryTesterImpl implements StoryTester {
                 return Then.class;
             }
         }
-    }
-
-    private static void runStory(List<String> story,  Class<?> testClass)
-            throws IllegalAccessException, InstantiationException, WordNotFoundException {
-        Object instance = testClass.newInstance();
-
-        //Method givenPart =
-
     }
 
     /**
@@ -267,22 +269,24 @@ public class StoryTesterImpl implements StoryTester {
         String[] lineSplitter = story.split("\n");
 
         //adding '&' to parameters in the sentences array
-        for (String current : lineSplitter) {
+        for(int i=0; i<lineSplitter.length; ++i) {
             //separating sentence by number of parameters using the word 'and'
-            String[] andSplitter = current.split("and");
-            for(String currentSubSen : andSplitter) {
+            String[] andSplitter = lineSplitter[i].split("and");
+
+            for(int j = 0; j<andSplitter.length; ++j) {
                 //taking the last word in the current sentence and pushing & before it
-                String lastWord = currentSubSen.substring(currentSubSen.lastIndexOf(" ")+1);
-                currentSubSen = currentSubSen.substring(0, currentSubSen.lastIndexOf(" ")) + " &" + lastWord;
+                String lastWord = andSplitter[j].substring(andSplitter[j].lastIndexOf(" ")+1);
+                andSplitter[j] = andSplitter[j].substring(0, andSplitter[j].lastIndexOf(" ")) + " &" + lastWord;
             }
 
             //returning the last sentence back to its original place in its new format
-            current = "";
+            lineSplitter[i] = "";
             for(String currentSubSen : andSplitter) {
-                current += andSplitter;
+                lineSplitter[i] += currentSubSen;
             }
         }
 
+        //we return the array of strings as a list (can be easier to handle later on)
         return stream(lineSplitter).collect(Collectors.toList());
     }
 
@@ -297,14 +301,14 @@ public class StoryTesterImpl implements StoryTester {
             return false;
 
         //normlizing the values to have only '&' instead of the parameter name and values
-        for(String current1 : s1ParamSplitter) {
+        for(int i = 0; i < s1ParamSplitter.length; ++i) {
             //taking the last word in the current sentence and pushing & instead of it
-            current1 = current1.substring(0, current1.lastIndexOf(" ")) + " &";
+            s1ParamSplitter[i] = s1ParamSplitter[i].substring(0, s1ParamSplitter[i].lastIndexOf(" ")) + " &";
         }
 
-        for(String current2 : s2ParamSplitter) {
+        for(int i = 0; i < s2ParamSplitter.length; ++i) {
             //taking the last word in the current sentence and pushing & instead of it
-            current2 = current2.substring(0, current2.lastIndexOf(" ")) + " &";
+            s2ParamSplitter[i] = s2ParamSplitter[i].substring(0, s2ParamSplitter[i].lastIndexOf(" ")) + " &";
         }
 
         //checking if the strings are look alike

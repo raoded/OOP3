@@ -3,6 +3,7 @@ import java.lang.reflect.*;
 
 public class main {
     public static void main(String[] args) throws Exception {
+        /*
         // get the class of Integer's nested class IntegerCache
         Class<?> intCache = Class.forName("java.lang.Integer$IntegerCache");
         // get the Field describing 'cache', which is a private and final field
@@ -22,6 +23,18 @@ public class main {
         // node: the hack only changed the particular Field pointed by cache.
         // subsequent calls to intCache.getDeclaredField("cache") will have
         // to be hacked again in order to use them to modify 'cache' again.
+        */
+        boolean isNull = Object.class.getSuperclass() == null;
+
+        Integer x = 1;
+
+        callChange(x);
+
+        System.out.println(x);
+    }
+
+    private static void callChange(Integer x) {
+        //x.
     }
 
     public static void disableFinalPrivate(Field field) throws Exception {

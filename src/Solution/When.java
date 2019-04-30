@@ -8,5 +8,5 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface When {
-    String value() default "Unkown";
+    public String value() default "Unkown";
 }
