@@ -4,7 +4,6 @@ package Provided;
 import java.util.List;
 
 public abstract class StoryTestException extends Exception {
-	
 	/**
 	 * Returns a string representing the sentence 
 	 * of the first Then sentence that failed

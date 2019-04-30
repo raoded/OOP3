@@ -24,17 +24,31 @@ public class main {
         // subsequent calls to intCache.getDeclaredField("cache") will have
         // to be hacked again in order to use them to modify 'cache' again.
         */
+        /*
         boolean isNull = Object.class.getSuperclass() == null;
 
-        Integer x = 1;
+        int[] x = {1};
 
         callChange(x);
 
-        System.out.println(x);
+        System.out.println(x[0]);
+        */
+
+        A a = new A();
+
+        B b = new B();
+
+        B.C c = b.new C();
+
+        boolean isSame;
+        Class<?> supeClassC = c.getClass().getSuperclass();
+        Class<?> supeClassB = B.class.getSuperclass();
+
+        System.out.println(supeClassC == supeClassB);
     }
 
-    private static void callChange(Integer x) {
-        //x.
+    private static void callChange(int[] x) {
+        x[0] = 2;
     }
 
     public static void disableFinalPrivate(Field field) throws Exception {

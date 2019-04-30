@@ -17,12 +17,16 @@ import static java.util.Arrays.*;
 
 public class StoryTesterImpl implements StoryTester {
     private static boolean isAnyThenFailed = false;
+    private static int numFail = 0;
+    private static List<String> storyExpceted = new LinkedList<>(), testResults=new LinkedList<>();
 
     @Override
     public void testOnInheritanceTree(String story, Class<?> testClass)
             throws WordNotFoundException, NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException, StoryTestExceptionImpl {
         if(story == null || testClass == null)
             throw new IllegalArgumentException();
+
+        String firstFail;
 
         try {
             Object oldInst;
@@ -53,8 +57,16 @@ public class StoryTesterImpl implements StoryTester {
                     //after invoking them, we clear the list for the next run
                     whenSequence.clear();
 
+                    boolean lastIsAnyThenFailed = isAnyThenFailed;
+
                     //now we can run the current Then sentence - this call returns the instance accordingly to success of the Then clause (oldInst if failed)
                     inst = runThen(sentence,testClass,inst,oldInst);
+
+                    //this means that the last invocation changed isAnyThenFailed from false to true, that means that this is the first Then sentence that failed
+                    // so we need to start handling the storyTestException instance
+                    if(lastIsAnyThenFailed != isAnyThenFailed) {
+                        firstFail = oldSentence(sentence);
+                    }
                 }
 
             }
@@ -63,15 +75,83 @@ public class StoryTesterImpl implements StoryTester {
             throw e;
         }
 
-        if(isAnyThenFailed)
-            throw new StoryTestExceptionImpl();
+        if(isAnyThenFailed){
+            //TODO: need to throw an instance of StoryTestExceptionImpl
+        }
+
+            //throw storyTestException;
+    }
+
+    private String oldSentence(String sentence) {
+        String[] ampSplitter = sentence.split("&");
+
+        //TODO : see that all relevant 'for' loops end at 'length-1' - its a must
+        for(int i = 0; i<ampSplitter.length-1; ++i) {
+            String lastWord = ampSplitter[i].substring(ampSplitter[i].lastIndexOf("&") + 1);
+            ampSplitter[i] = ampSplitter[i].substring(0, ampSplitter[i].lastIndexOf("&") - 1) + lastWord;
+        }
+
+        String oldString ="";
+
+        for(int i = 0; i<ampSplitter.length-1; ++i) {
+            oldString += ampSplitter[i];
+        }
+
+        return oldString;
     }
 
     @Override
     public void testOnNestedClasses(String story, Class<?> testClass) throws Exception {
         if(story == null || testClass == null) throw new IllegalArgumentException();
 
-        //TODO : needs to be implemented
+        String first_sentence=parseStory(story).get(0);
+        Class<?> actual_class=findNestedClass(first_sentence, testClass);
+        testOnInheritanceTree(story,actual_class);
+    }
+
+    private static Class<?> findNestedClassesRecursivly(String first_sentence, Class<?> testClass) throws NoSuchMethodException{
+        try {
+            Method method=getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
+            return testClass;
+        }
+        catch (NoSuchMethodException e)
+        {
+            Class[] inner_classes=testClass.getDeclaredClasses();
+
+            for(int i=0;i<inner_classes.length;i++)
+            {
+                try{
+                    Method method=getAnnotatedMethodFromAncestors(Given.class,inner_classes[i],first_sentence);
+                    return inner_classes[i];
+                }
+                catch(NoSuchMethodException e2) { }
+            }
+
+            for(int i=0;i<inner_classes.length;i++)
+            {
+                return findNestedClassesRecursivly(first_sentence,inner_classes[i]);
+            }
+        }
+        throw new NoSuchMethodException();
+    }
+
+    private static Class<?> findNestedClass(String first_sentence, Class<?> testClass) throws GivenNotFoundException {
+        try {
+            Method method=getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
+            return testClass;
+        } catch (NoSuchMethodException e) {}
+
+        Class[] inner_classes=testClass.getDeclaredClasses();
+
+        for(int i=0;i<inner_classes.length;i++) {
+            try {
+                return findNestedClassesRecursivly(first_sentence,inner_classes[i]);
+            }
+            catch(NoSuchMethodException e) {}
+        }
+
+        // if we havent returned until now
+        throw new GivenNotFoundException();
     }
 
     /**
@@ -211,7 +291,9 @@ public class StoryTesterImpl implements StoryTester {
         }
 
         //if all Then clause attempts failed - we roll back to our old instance that was cloned
-        isAnyThenFailed = true;
+        if(!isAnyThenFailed) {
+            isAnyThenFailed = true;
+        }
 
         return oldInst;
     }

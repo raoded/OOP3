@@ -6,26 +6,24 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class StoryTestExceptionImpl extends StoryTestException {
-    private String firstFail ="";
-    private int numFail = 0;
+    private String _firstFail ="";
+    private List<String> _storyExpceted, _testResults;
+    private int _numFail;
+
+    StoryTestExceptionImpl(String firstExpected, List<String> storyExpceted, List<String> testResults, int numFail) {
+        _firstFail = firstExpected;
+        _storyExpceted = storyExpceted;
+        _testResults = testResults;
+        _numFail = numFail;
+    }
 
     public String getSentance() {
-        return firstFail;
+        return _firstFail;
     }
 
-    public List<String> getStoryExpected(){
-        //TODO : needs to be implemented
+    public List<String> getStoryExpected(){ return _storyExpceted; }
 
-        return new LinkedList<>(); //TODO : STAM returned
-    }
+    public List<String> getTestResult(){ return _testResults; }
 
-    public List<String> getTestResult(){
-        //TODO : needs to be implemented
-
-        return new LinkedList<>(); //TODO : STAM returned
-    }
-
-    public int getNumFail(){
-        return numFail;
-    }
+    public int getNumFail(){ return _numFail; }
 }
