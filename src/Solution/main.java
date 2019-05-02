@@ -1,5 +1,9 @@
 package Solution;
+import org.junit.ComparisonFailure;
+
 import java.lang.reflect.*;
+
+import static org.junit.Assert.assertEquals;
 
 public class main {
     public static void main(String[] args) throws Exception {
@@ -32,7 +36,7 @@ public class main {
         callChange(x);
 
         System.out.println(x[0]);
-        */
+
 
         A a = new A();
 
@@ -45,6 +49,18 @@ public class main {
         Class<?> supeClassB = B.class.getSuperclass();
 
         System.out.println(supeClassC == supeClassB);
+        */
+
+        try {
+            callThrowComparisonFailure();
+        } catch (ComparisonFailure e) {
+            System.out.println(e.getActual());
+            System.out.println(e.getExpected());
+        }
+    }
+
+    private static void callThrowComparisonFailure() throws ComparisonFailure {
+        assertEquals("1","2");
     }
 
     private static void callChange(int[] x) {

@@ -16,9 +16,9 @@ import java.util.stream.Collectors;
 import static java.util.Arrays.*;
 
 public class StoryTesterImpl implements StoryTester {
-    private static boolean isAnyThenFailed = false;
+    private static boolean firstFail = false;
     private static int numFail = 0;
-    private static List<String> storyExpceted = new LinkedList<>(), testResults=new LinkedList<>();
+    private static LinkedList<String> storyExpceted = new LinkedList<>(), storyResults=new LinkedList<>();
 
     @Override
     public void testOnInheritanceTree(String story, Class<?> testClass)
@@ -26,78 +26,70 @@ public class StoryTesterImpl implements StoryTester {
         if(story == null || testClass == null)
             throw new IllegalArgumentException();
 
-        String firstFail;
+        String firstFailedSentence = "";
 
-        try {
-            Object oldInst;
-            LinkedList<String> whenSequence = new LinkedList<>();
+        Object oldInst;
+        LinkedList<String> whenSequence = new LinkedList<>();
 
-            //first, we create an instance of testClass to invoke our methods
-            Object inst = testClass.getDeclaredConstructor().newInstance();
+        //first, we create an instance of testClass to invoke our methods
+        Object inst = testClass.getDeclaredConstructor().newInstance();
 
-            //first, we parse the story
-            List<String> parsedStory = parseStory(story);
+        //first, we parse the story
+        List<String> parsedStory = parseStory(story);
 
-            for (String sentence : parsedStory) {
-                Class<?> anno = getAnnotationType(sentence);
+        for (String sentence : parsedStory) {
+            Class<?> anno = getAnnotationType(sentence);
 
-                if (anno == Given.class) {
-                    runGiven(sentence,testClass,inst);
-                } else if (anno == When.class) {
-                    //in this case we dont invoke the When sentences until they are all read sequentially
-                    //we save all the When sentences in a list until the next Then sentence
-                    whenSequence.addLast(sentence);
-                } else if(anno == Then.class) {
-                    //now we save the old instance of the testClass before invoking the When annotated methods
-                    oldInst = cloneObject(inst,testClass);
+            if (anno == Given.class) {
+                runGiven(sentence,testClass,inst);
+            } else if (anno == When.class) {
+                //in this case we dont invoke the When sentences until they are all read sequentially
+                //we save all the When sentences in a list until the next Then sentence
+                whenSequence.addLast(sentence);
+            } else if(anno == Then.class) {
+                //now we save the old instance of the testClass before invoking the When annotated methods
+                oldInst = cloneObject(inst,testClass);
 
-                    //now we run the entire When sentences that were read so far
-                    runWhens(whenSequence,testClass,inst);
+                //now we run the entire When sentences that were read so far
+                runWhens(whenSequence,testClass,inst);
 
-                    //after invoking them, we clear the list for the next run
-                    whenSequence.clear();
+                //after invoking them, we clear the list for the next run
+                whenSequence.clear();
 
-                    boolean lastIsAnyThenFailed = isAnyThenFailed;
+                boolean lastIsAnyThenFailed = firstFail;
 
-                    //now we can run the current Then sentence - this call returns the instance accordingly to success of the Then clause (oldInst if failed)
-                    inst = runThen(sentence,testClass,inst,oldInst);
+                //now we can run the current Then sentence - this call returns the instance accordingly to success of the Then clause (oldInst if failed)
+                inst = runThen(sentence,testClass,inst,oldInst);
 
-                    //this means that the last invocation changed isAnyThenFailed from false to true, that means that this is the first Then sentence that failed
-                    // so we need to start handling the storyTestException instance
-                    if(lastIsAnyThenFailed != isAnyThenFailed) {
-                        firstFail = oldSentence(sentence);
-                    }
+                //this means that the last invocation changed isAnyThenFailed from false to true, that means that this is the first Then sentence that failed
+                // so we need to start handling the storyTestException instance
+                if(lastIsAnyThenFailed != firstFail) {
+                    firstFailedSentence = oldSentence(sentence);
                 }
-
             }
-        } catch(WordNotFoundException | IllegalAccessException | InvocationTargetException | InstantiationException e) {
-            //TODO : What is neede to throw here?
-            throw e;
         }
 
-        if(isAnyThenFailed){
-            //TODO: need to throw an instance of StoryTestExceptionImpl
+        if(firstFail){
+            throw new StoryTestExceptionImpl(firstFailedSentence,storyExpceted,storyResults,numFail);
         }
-
-            //throw storyTestException;
     }
 
+    //This method gets a sentence with marked parameters (&) and returns a "clean" sentence(the way it was in the story)
     private String oldSentence(String sentence) {
         String[] ampSplitter = sentence.split("&");
 
-        //TODO : see that all relevant 'for' loops end at 'length-1' - its a must
         for(int i = 0; i<ampSplitter.length-1; ++i) {
             String lastWord = ampSplitter[i].substring(ampSplitter[i].lastIndexOf("&") + 1);
             ampSplitter[i] = ampSplitter[i].substring(0, ampSplitter[i].lastIndexOf("&") - 1) + lastWord;
         }
 
-        String oldString ="";
+        StringBuilder oldString = new StringBuilder();
 
         for(int i = 0; i<ampSplitter.length-1; ++i) {
-            oldString += ampSplitter[i];
+            oldString.append(ampSplitter[i]);
         }
 
-        return oldString;
+        return oldString.toString();
     }
 
     @Override
@@ -111,25 +103,24 @@ public class StoryTesterImpl implements StoryTester {
 
     private static Class<?> findNestedClassesRecursivly(String first_sentence, Class<?> testClass) throws NoSuchMethodException{
         try {
-            Method method=getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
+            getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
             return testClass;
         }
         catch (NoSuchMethodException e)
         {
             Class[] inner_classes=testClass.getDeclaredClasses();
 
-            for(int i=0;i<inner_classes.length;i++)
-            {
-                try{
-                    Method method=getAnnotatedMethodFromAncestors(Given.class,inner_classes[i],first_sentence);
-                    return inner_classes[i];
-                }
-                catch(NoSuchMethodException e2) { }
+            for (Class inner_class : inner_classes) {
+                try {
+                    getAnnotatedMethodFromAncestors(Given.class, inner_class, first_sentence);
+                    return inner_class;
+                } catch (NoSuchMethodException ignored) { }
             }
 
-            for(int i=0;i<inner_classes.length;i++)
-            {
-                return findNestedClassesRecursivly(first_sentence,inner_classes[i]);
+            for (Class inner_class : inner_classes) {
+                try {
+                    return findNestedClassesRecursivly(first_sentence, inner_class);
+                } catch (NoSuchMethodException ignored) { }
             }
         }
         throw new NoSuchMethodException();
@@ -137,17 +128,16 @@ public class StoryTesterImpl implements StoryTester {
 
     private static Class<?> findNestedClass(String first_sentence, Class<?> testClass) throws GivenNotFoundException {
         try {
-            Method method=getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
+            getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
             return testClass;
-        } catch (NoSuchMethodException e) {}
+        } catch (NoSuchMethodException ignored) {}
 
         Class[] inner_classes=testClass.getDeclaredClasses();
 
-        for(int i=0;i<inner_classes.length;i++) {
+        for (Class inner_class : inner_classes) {
             try {
-                return findNestedClassesRecursivly(first_sentence,inner_classes[i]);
-            }
-            catch(NoSuchMethodException e) {}
+                return findNestedClassesRecursivly(first_sentence, inner_class);
+            } catch (NoSuchMethodException ignored) { }
         }
 
         // if we havent returned until now
@@ -283,7 +273,10 @@ public class StoryTesterImpl implements StoryTester {
                 return inst;
             }
             catch (ComparisonFailure e) {
-                //TODO: need to add implementation regarding failure of Then invocations
+                if(!firstFail) {
+                    storyExpceted.addLast(e.getExpected());
+                    storyResults.addLast(e.getActual());
+                }
             }
             catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
                 throw new ThenNotFoundException();
@@ -291,9 +284,11 @@ public class StoryTesterImpl implements StoryTester {
         }
 
         //if all Then clause attempts failed - we roll back to our old instance that was cloned
-        if(!isAnyThenFailed) {
-            isAnyThenFailed = true;
+        if(!firstFail) {
+            firstFail = true;
         }
+
+        ++numFail;
 
         return oldInst;
     }
