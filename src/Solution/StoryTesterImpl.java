@@ -16,9 +16,10 @@ import java.util.stream.Collectors;
 import static java.util.Arrays.*;
 
 public class StoryTesterImpl implements StoryTester {
-    private static boolean firstFail = false;
+    private static boolean firstFail = false, isInnerClass = false;
     private static int numFail = 0;
     private static LinkedList<String> storyExpceted = new LinkedList<>(), storyResults=new LinkedList<>();
+    private static Object nestedTestClassInstance;
 
     @Override
     public void testOnInheritanceTree(String story, Class<?> testClass)
@@ -32,7 +33,14 @@ public class StoryTesterImpl implements StoryTester {
         LinkedList<String> whenSequence = new LinkedList<>();
 
         //first, we create an instance of testClass to invoke our methods
-        Object inst = testClass.getDeclaredConstructor().newInstance();
+        Object inst;
+        if(isInnerClass) {
+            inst = nestedTestClassInstance;
+        } else {
+            inst = testClass.getDeclaredConstructor().newInstance();
+        }
+
+        clearAll();
 
         //first, we parse the story
         List<String> parsedStory = parseStory(story);
@@ -75,33 +83,44 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     //This method gets a sentence with marked parameters (&) and returns a "clean" sentence(the way it was in the story)
-    private String oldSentence(String sentence) {
+    private static String oldSentence(String sentence) {
         String[] ampSplitter = sentence.split("&");
+        StringBuilder oldSentence = new StringBuilder();
 
-        for(int i = 0; i<ampSplitter.length-1; ++i) {
-            String lastWord = ampSplitter[i].substring(ampSplitter[i].lastIndexOf("&") + 1);
-            ampSplitter[i] = ampSplitter[i].substring(0, ampSplitter[i].lastIndexOf("&") - 1) + lastWord;
+        for (String s : ampSplitter) {
+            oldSentence.append(s);
         }
 
-        StringBuilder oldString = new StringBuilder();
+        return oldSentence.toString();
+    }
 
-        for(int i = 0; i<ampSplitter.length-1; ++i) {
-            oldString.append(ampSplitter[i]);
-        }
-
-        return oldString.toString();
+    //We use this method to clear out all of old information about former uses of StoryTester, since they are irrelevant to this one.
+    private static void clearAll() {
+        firstFail = false; isInnerClass = false;
+        numFail = 0;
+        storyExpceted = new LinkedList<>(); storyResults = new LinkedList<>();
     }
 
     @Override
     public void testOnNestedClasses(String story, Class<?> testClass) throws Exception {
         if(story == null || testClass == null) throw new IllegalArgumentException();
 
+        clearAll();
+
         String first_sentence=parseStory(story).get(0);
         Class<?> actual_class=findNestedClass(first_sentence, testClass);
         testOnInheritanceTree(story,actual_class);
     }
 
-    private static Class<?> findNestedClassesRecursivly(String first_sentence, Class<?> testClass) throws NoSuchMethodException{
+    private static Class<?> findNestedClassesRecursivly(String first_sentence, Class<?> testClass, Object nestedInstance) throws NoSuchMethodException{
+        //first, we create an instance of testClass to invoke our methods
+        //Constructor<?> TestClassConstructor = testClass.getDeclaredConstructor();
+
+        //testClass.get
+        //TODO: It turns out, obviously, that an inner class instance can only be created with a pointer to its class AND a pointer to an instance of a parent class (which can be a nested class also)
+        // it means that we need some kind of "nested instance" that lives along the run of this method.
+        // We need to discover how using generics can help us to recursively create an instance of the inner class of the corresponding testClass.
+        //nestedInstance = testClass.getDeclaredConstructor().newInstance();
         try {
             getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
             return testClass;
@@ -119,24 +138,31 @@ public class StoryTesterImpl implements StoryTester {
 
             for (Class inner_class : inner_classes) {
                 try {
-                    return findNestedClassesRecursivly(first_sentence, inner_class);
+                    return findNestedClassesRecursivly(first_sentence, inner_class, nestedInstance);
                 } catch (NoSuchMethodException ignored) { }
             }
         }
         throw new NoSuchMethodException();
     }
 
-    private static Class<?> findNestedClass(String first_sentence, Class<?> testClass) throws GivenNotFoundException {
+    private static Class<?> findNestedClass(String first_sentence, Class<?> testClass) throws GivenNotFoundException, NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException {
+        //first, we create an instance of testClass to invoke our methods
         try {
             getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
             return testClass;
         } catch (NoSuchMethodException ignored) {}
 
+        isInnerClass = true;
+
         Class[] inner_classes=testClass.getDeclaredClasses();
+
+        //first, we create an instance of testClass to invoke our methods
+        nestedTestClassInstance = testClass.getDeclaredConstructor().newInstance();
 
         for (Class inner_class : inner_classes) {
             try {
-                return findNestedClassesRecursivly(first_sentence, inner_class);
+                //Object nestedInstance = nestedTestClassInstance.new InnerTestClassConstructor();
+                return findNestedClassesRecursivly(first_sentence, inner_class, nestedTestClassInstance);
             } catch (NoSuchMethodException ignored) { }
         }
 
@@ -205,6 +231,9 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     private static boolean annotationEqualHandler(Annotation anno, String valueS) {
+        //removing first word of the story sentence (says the annotation that we already know)
+        valueS = valueS.substring(valueS.indexOf(" ")+1);
+
         if(anno instanceof Given) {
             return annotationIsEqual(((Given) anno).value(),valueS);
         }
@@ -221,7 +250,8 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     //this method searches and runs a single sentence
-    private static void runSentence(Class<? extends Annotation> annotation, String sentence, Class<?> testClass, Object inst) throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+    private static void runSentence(Class<? extends Annotation> annotation, String sentence, Class<?> testClass, Object inst)
+            throws NoSuchMethodException, InvocationTargetException, IllegalAccessException, ComparisonFailure {
         //finding the method
         Method m = getAnnotatedMethodFromAncestors(annotation, testClass, sentence);
 
@@ -254,6 +284,7 @@ public class StoryTesterImpl implements StoryTester {
         }
     }
 
+
     //This method searches a method of type Then annotation, given a sentence to run and runs it by the Then sentence methodology
     private static Object runThen(String sentence, Class<?> testClass, Object inst, Object oldInst) throws ThenNotFoundException{
         String[] splitInvocations = sentence.split("or ");
@@ -272,13 +303,13 @@ public class StoryTesterImpl implements StoryTester {
                 // and go back without rolling back to the old instance
                 return inst;
             }
-            catch (ComparisonFailure e) {
+            catch (ComparisonFailure | InvocationTargetException | IllegalAccessException e) {
                 if(!firstFail) {
-                    storyExpceted.addLast(e.getExpected());
-                    storyResults.addLast(e.getActual());
+                    storyExpceted.addLast(((ComparisonFailure)(e.getCause())).getExpected());
+                    storyResults.addLast(((ComparisonFailure)(e.getCause())).getActual());
                 }
             }
-            catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
+            catch (NoSuchMethodException e) {
                 throw new ThenNotFoundException();
             }
         }
@@ -299,7 +330,7 @@ public class StoryTesterImpl implements StoryTester {
         Object[] objects = new Object[splitted.length];
 
         for(int i = 0 ; i<splitted.length; ++i) {
-            splitted[i] = splitted[i].substring(splitted[i].lastIndexOf(" &")+1);
+            splitted[i] = splitted[i].substring(splitted[i].lastIndexOf("&")+1);
 
             if(isParamTypeInt(splitted[i])) {
                 objects[i] = Integer.parseInt(splitted[i]);

@@ -1,6 +1,5 @@
 package Solution;
 import org.junit.ComparisonFailure;
-
 import java.lang.reflect.*;
 
 import static org.junit.Assert.assertEquals;
@@ -27,8 +26,8 @@ public class main {
         // node: the hack only changed the particular Field pointed by cache.
         // subsequent calls to intCache.getDeclaredField("cache") will have
         // to be hacked again in order to use them to modify 'cache' again.
-        */
-        /*
+
+
         boolean isNull = Object.class.getSuperclass() == null;
 
         int[] x = {1};
@@ -36,7 +35,7 @@ public class main {
         callChange(x);
 
         System.out.println(x[0]);
-
+        */
 
         A a = new A();
 
@@ -49,14 +48,11 @@ public class main {
         Class<?> supeClassB = B.class.getSuperclass();
 
         System.out.println(supeClassC == supeClassB);
-        */
 
-        try {
-            callThrowComparisonFailure();
-        } catch (ComparisonFailure e) {
-            System.out.println(e.getActual());
-            System.out.println(e.getExpected());
-        }
+        //B.C.INNNERINNER e = b.new INNNERINNER();
+
+        //System.out.println(e.getClass());
+
     }
 
     private static void callThrowComparisonFailure() throws ComparisonFailure {
