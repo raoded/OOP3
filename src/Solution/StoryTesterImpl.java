@@ -4,10 +4,7 @@ import Provided.*;
 import org.junit.ComparisonFailure;
 
 import java.lang.annotation.Annotation;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.lang.reflect.*;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -20,6 +17,17 @@ public class StoryTesterImpl implements StoryTester {
     private static int numFail = 0;
     private static LinkedList<String> storyExpceted = new LinkedList<>(), storyResults=new LinkedList<>();
     private static Object nestedTestClassInstance;
+    private static Class<?> originalTestClass = null;
+    private static String firstSentence = "";
+
+    //We use this method to clear out all of old information about former uses of StoryTester, since they are irrelevant to this one.
+    private static void clearAll() {
+        firstFail = false; isInnerClass = false;
+        numFail = 0;
+        storyExpceted = new LinkedList<>(); storyResults = new LinkedList<>();
+        originalTestClass = null;
+        firstSentence = "";
+    }
 
     @Override
     public void testOnInheritanceTree(String story, Class<?> testClass)
@@ -40,45 +48,48 @@ public class StoryTesterImpl implements StoryTester {
             inst = testClass.getDeclaredConstructor().newInstance();
         }
 
-        clearAll();
-
         //first, we parse the story
         List<String> parsedStory = parseStory(story);
 
-        for (String sentence : parsedStory) {
-            Class<?> anno = getAnnotationType(sentence);
+        try {
+            for (String sentence : parsedStory) {
+                Class<?> anno = getAnnotationType(sentence);
 
-            if (anno == Given.class) {
-                runGiven(sentence,testClass,inst);
-            } else if (anno == When.class) {
-                //in this case we dont invoke the When sentences until they are all read sequentially
-                //we save all the When sentences in a list until the next Then sentence
-                whenSequence.addLast(sentence);
-            } else if(anno == Then.class) {
-                //now we save the old instance of the testClass before invoking the When annotated methods
-                oldInst = cloneObject(inst,testClass);
+                if (anno == Given.class) {
+                    runGiven(sentence, testClass, inst);
+                } else if (anno == When.class) {
+                    //in this case we dont invoke the When sentences until they are all read sequentially
+                    //we save all the When sentences in a list until the next Then sentence
+                    whenSequence.addLast(sentence);
+                } else if (anno == Then.class) {
+                    //now we save the old instance of the testClass before invoking the When annotated methods
+                    oldInst = cloneObject(inst, testClass);
 
-                //now we run the entire When sentences that were read so far
-                runWhens(whenSequence,testClass,inst);
+                    //now we run the entire When sentences that were read so far
+                    runWhens(whenSequence, testClass, inst);
 
-                //after invoking them, we clear the list for the next run
-                whenSequence.clear();
+                    //after invoking them, we clear the list for the next run
+                    whenSequence.clear();
 
-                boolean lastIsAnyThenFailed = firstFail;
+                    boolean lastIsAnyThenFailed = firstFail;
 
-                //now we can run the current Then sentence - this call returns the instance accordingly to success of the Then clause (oldInst if failed)
-                inst = runThen(sentence,testClass,inst,oldInst);
+                    //now we can run the current Then sentence - this call returns the instance accordingly to success of the Then clause (oldInst if failed)
+                    inst = runThen(sentence, testClass, inst, oldInst);
 
-                //this means that the last invocation changed isAnyThenFailed from false to true, that means that this is the first Then sentence that failed
-                // so we need to start handling the storyTestException instance
-                if(lastIsAnyThenFailed != firstFail) {
-                    firstFailedSentence = oldSentence(sentence);
+                    //this means that the last invocation changed isAnyThenFailed from false to true, that means that this is the first Then sentence that failed
+                    // so we need to start handling the storyTestException instance
+                    if (lastIsAnyThenFailed != firstFail) {
+                        firstFailedSentence = oldSentence(sentence);
+                    }
                 }
             }
-        }
 
-        if(firstFail){
-            throw new StoryTestExceptionImpl(firstFailedSentence,storyExpceted,storyResults,numFail);
+            if (firstFail) {
+                throw new StoryTestExceptionImpl(firstFailedSentence, storyExpceted, storyResults, numFail);
+            }
+        }
+        finally{
+            clearAll();
         }
     }
 
@@ -94,25 +105,25 @@ public class StoryTesterImpl implements StoryTester {
         return oldSentence.toString();
     }
 
-    //We use this method to clear out all of old information about former uses of StoryTester, since they are irrelevant to this one.
-    private static void clearAll() {
-        firstFail = false; isInnerClass = false;
-        numFail = 0;
-        storyExpceted = new LinkedList<>(); storyResults = new LinkedList<>();
-    }
-
     @Override
     public void testOnNestedClasses(String story, Class<?> testClass) throws Exception {
         if(story == null || testClass == null) throw new IllegalArgumentException();
 
-        clearAll();
+        originalTestClass = testClass;
 
         String first_sentence=parseStory(story).get(0);
-        Class<?> actual_class=findNestedClass(first_sentence, testClass);
-        testOnInheritanceTree(story,actual_class);
+
+        firstSentence = first_sentence;
+
+        try {
+            Class<?> actual_class = findNestedClass(first_sentence, testClass);
+            testOnInheritanceTree(story, actual_class);
+        } finally {
+            clearAll();
+        }
     }
 
-    private static Class<?> findNestedClassesRecursivly(String first_sentence, Class<?> testClass, Object nestedInstance) throws NoSuchMethodException{
+    private static Class<?> findNestedClassesRecursivly(String first_sentence, Class<?> nestedClass, Object parent) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException {
         //first, we create an instance of testClass to invoke our methods
         //Constructor<?> TestClassConstructor = testClass.getDeclaredConstructor();
 
@@ -120,14 +131,23 @@ public class StoryTesterImpl implements StoryTester {
         //TODO: It turns out, obviously, that an inner class instance can only be created with a pointer to its class AND a pointer to an instance of a parent class (which can be a nested class also)
         // it means that we need some kind of "nested instance" that lives along the run of this method.
         // We need to discover how using generics can help us to recursively create an instance of the inner class of the corresponding testClass.
-        //nestedInstance = testClass.getDeclaredConstructor().newInstance();
+
+        Object nestedInstance;
+        if (!Modifier.isStatic(nestedClass.getModifiers())) {
+            // This is an inner class. Pass the parent class in.
+            nestedInstance = nestedClass.getDeclaredConstructor(new Class[] { parent.getClass() }).newInstance(parent);
+        } else {
+            // This is a nested class. You can also use it here as follows:
+            nestedInstance = nestedClass.getDeclaredConstructor(new Class[] {}).newInstance();
+        }
         try {
-            getAnnotatedMethodFromAncestors(Given.class,testClass,first_sentence);
-            return testClass;
+            getAnnotatedMethodFromAncestors(Given.class,nestedClass,first_sentence);
+            nestedTestClassInstance = nestedInstance;
+            return nestedClass;
         }
         catch (NoSuchMethodException e)
         {
-            Class[] inner_classes=testClass.getDeclaredClasses();
+            Class[] inner_classes=nestedClass.getDeclaredClasses();
 
             for (Class inner_class : inner_classes) {
                 try {
@@ -429,9 +449,21 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     private static  Object cloneObject(Object inst, Class<?> testClass)
-            throws IllegalAccessException, NoSuchMethodException, InvocationTargetException, InstantiationException {
+            throws IllegalAccessException, NoSuchMethodException, InvocationTargetException, InstantiationException, GivenNotFoundException {
         List<Field> fields = new ArrayList<>(asList(testClass.getDeclaredFields()));
-        Object oldInst = testClass.getDeclaredConstructor().newInstance();
+        Object oldInst;
+
+        if(!isInnerClass) {
+            //in this case testClass is not a nested class
+            oldInst = testClass.getDeclaredConstructor().newInstance();
+        }
+        else {
+            //in this case we need to make a new nested instance using recursive method. This makes:
+            // 1. nestedTestClassInstance gets the new instance.
+            // 2. we use the oldInst variable to handle the 'new' instance
+            findNestedClass(firstSentence,originalTestClass);
+            oldInst = nestedTestClassInstance;
+        }
         for (Field f : fields) {
             f.setAccessible(true);
             Object fObj = f.get(inst);

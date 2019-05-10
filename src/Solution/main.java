@@ -1,6 +1,8 @@
 package Solution;
+//import com.sun.java.util.jar.pack.Package;
 import org.junit.ComparisonFailure;
 import java.lang.reflect.*;
+import java.util.LinkedList;
 
 import static org.junit.Assert.assertEquals;
 
@@ -35,7 +37,7 @@ public class main {
         callChange(x);
 
         System.out.println(x[0]);
-        */
+
 
         A a = new A();
 
@@ -53,6 +55,40 @@ public class main {
 
         //System.out.println(e.getClass());
 
+        Class ac = A.class;
+        
+        //Class.forName(ac.)
+
+
+        for(Object o : constructInnerInst(B.class, B.C.INNNERINNER.class)) {
+            System.out.println(o.getClass());
+        }
+
+        */
+
+
+    }
+    private static Object constructInnerInst(Class parentClass, Class findClass, Object currentInst) throws Exception {
+        Object x = null, y= null;
+
+        for (Class<?> cls : currentInst.getClass().getDeclaredClasses()) {
+            if (!Modifier.isStatic(cls.getModifiers())) {
+                // This is an inner class. Pass the parent class in.
+                x = cls.getDeclaredConstructor(new Class[]{currentInst.getClass()}).newInstance(new Object[]{currentInst});
+                if(x.getClass() == findClass.getClass()) {
+                    return x;
+                }
+
+            } else {
+                // This is a nested class. You can also use it here as follows:
+                y = cls.getDeclaredConstructor(new Class[]{}).newInstance(new Object[]{});
+                if(y.getClass() == findClass.getClass()) {
+                    return y;
+                }
+            }
+        }
+
+        throw new Exception();
     }
 
     private static void callThrowComparisonFailure() throws ComparisonFailure {
