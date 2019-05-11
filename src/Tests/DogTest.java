@@ -28,12 +28,12 @@ public class DogTest {
 	@Before
 	public void setUp() throws Exception {
 		goodStory = "Given a Dog of age 6\n"
-				+ "When the dog is not taken out for a walk, the number of hours is 5\n"
+				+ "When the dog is not taken out for a walk, the number of hours is 5 and the time is 8\n"
 				+ "Then the house condition is clean";
 		
 		badStory = "Given a Dog of age 6\n"
 				+ "When the dog is not taken out for a walk, the number of hours is 5\n"
-				+ "Then the house condition is smelly";
+				+ "Then the house condition is smelly or the house condition is tasty";
 		
 		derivedStory = "Given a Dog of age 6\n"
 				+ "When the dog is not taken out for a walk, the number of hours is 15\n"
@@ -67,9 +67,11 @@ public class DogTest {
 			Assert.assertTrue(false);
 		} catch (StoryTestException e) {
 			Assert.assertTrue(true);
-			Assert.assertEquals("Then the house condition is smelly", e.getSentance());
-			Assert.assertEquals(Arrays.asList("smelly"), e.getStoryExpected());
-			Assert.assertEquals(Arrays.asList("clean"), e.getTestResult());
+			Assert.assertEquals("Then the house condition is smelly or the house condition is tasty", e.getSentance());
+			System.out.println(Arrays.asList("smelly, tasty"));
+			System.out.println(e.getStoryExpected());
+			Assert.assertEquals("[smelly, tasty]", e.getStoryExpected());
+			Assert.assertEquals(Arrays.asList("clean, clean"), e.getTestResult());
 		}
 	}
 	
