@@ -6,6 +6,7 @@ import org.junit.ComparisonFailure;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -143,13 +144,6 @@ public class StoryTesterImpl implements StoryTester {
 
             for (Class inner_class : inner_classes) {
                 try {
-                    getAnnotatedMethodFromAncestors(Given.class, inner_class, first_sentence);
-                    return inner_class;
-                } catch (NoSuchMethodException ignored) { }
-            }
-
-            for (Class inner_class : inner_classes) {
-                try {
                     return findNestedClassesRecursivly(first_sentence, inner_class, nestedInstance);
                 } catch (NoSuchMethodException ignored) { }
             }
@@ -277,21 +271,21 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     //This method searches a method of type Given annotation, given a sentence to run and runs it
-    private static void runGiven(String sentence, Class<?> testClass, Object inst) throws GivenNotFoundException {
+    private static void runGiven(String sentence, Class<?> testClass, Object inst) throws GivenNotFoundException, InvocationTargetException, IllegalAccessException {
         try {
             runSentence(Given.class, sentence, testClass, inst);
-        } catch(NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+        } catch(NoSuchMethodException e) {
                 throw new GivenNotFoundException();
         }
     }
 
     //This method searches each When annotated method of type When annotation, given a list of sequential sentences of When type and runs them
-    private static void runWhens(LinkedList<String> sentences, Class<?> testClass, Object inst) throws WhenNotFoundException{
+    private static void runWhens(LinkedList<String> sentences, Class<?> testClass, Object inst) throws WhenNotFoundException, InvocationTargetException, IllegalAccessException {
         try {
             for (String sentence : sentences) {
                 runSentence(When.class, sentence,testClass,inst);
             }
-        } catch(NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+        } catch(NoSuchMethodException e) {
             throw new WhenNotFoundException();
         }
     }
@@ -300,6 +294,8 @@ public class StoryTesterImpl implements StoryTester {
     //This method searches a method of type Then annotation, given a sentence to run and runs it by the Then sentence methodology
     private static Object runThen(String sentence, Class<?> testClass, Object inst, Object oldInst) throws ThenNotFoundException{
         String[] splitInvocations = sentence.split(" or ");
+
+
 
         for (int i = 0 ; i < splitInvocations.length; ++i) {
             try{
@@ -310,9 +306,11 @@ public class StoryTesterImpl implements StoryTester {
                 runSentence(Then.class, splitInvocations[i], testClass, inst);
 
                 //once we succeed it means that Then clause was fulfilled - we can break our attempts in this stage
-                // and go back without rolling back to the old instance, and clear out any comparison failure regarding this sentence
-                storyExpceted.clear();
-                storyResults.clear();
+                // and go back without rolling back to the old instance, if we didn't fail up until this point - we also need to clear story exception
+                if(!firstFail){
+                    storyExpceted.clear();
+                    storyResults.clear();
+                }
                 return inst;
             }
             catch (ComparisonFailure | InvocationTargetException | IllegalAccessException e) {
@@ -403,14 +401,14 @@ public class StoryTesterImpl implements StoryTester {
 
     private static String parseRegularSentence(String s) {
         //separating sentence by number of parameters using the word 'and'
-        String[] andSplitter = s.split(" and ");
+        String[] andSplitter = s.split(" and");
 
         for(int i = 0; i<andSplitter.length; ++i) {
             //taking the last word in the current sentence and pushing & before it
             String lastWord = andSplitter[i].substring(andSplitter[i].lastIndexOf(" ")+1);
             andSplitter[i] = andSplitter[i].substring(0, andSplitter[i].lastIndexOf(" ")) + " &" + lastWord;
             if(i < andSplitter.length -1){
-                andSplitter[i] += " and ";
+                andSplitter[i] += " and";
             }
         }
 
@@ -442,8 +440,8 @@ public class StoryTesterImpl implements StoryTester {
     //Method to check if two strings look alike in the terms of notation string value
     // (not checking parameter types as Guy told us its not needed string-value() wise)
     private static boolean annotationIsEqual(String s1, String s2) {
-        String[] s1ParamSplitter = s1.split(" and ");
-        String[] s2ParamSplitter = s2.split(" and ");
+        String[] s1ParamSplitter = s1.split(" and");
+        String[] s2ParamSplitter = s2.split(" and");
 
         //if the number of parameters is not equal, it can't be the same annotation value
         if(s1ParamSplitter.length != s2ParamSplitter.length)
@@ -469,9 +467,22 @@ public class StoryTesterImpl implements StoryTester {
         return true;
     }
 
+    //recursive method to return all fields of the class and its ancestors
+    private static List<Field> getAllFields(List<Field> fields, Class<?> type) {
+        fields.addAll(Arrays.asList(type.getDeclaredFields()));
+
+        if (type.getSuperclass() != null) {
+            getAllFields(fields, type.getSuperclass());
+        }
+
+        return fields;
+    }
+
     private static  Object cloneObject(Object inst, Class<?> testClass)
             throws IllegalAccessException, NoSuchMethodException, InvocationTargetException, InstantiationException, GivenNotFoundException {
-        List<Field> fields = new ArrayList<>(asList(testClass.getDeclaredFields()));
+        List<Field> fields = new ArrayList<>();
+        getAllFields(fields, inst.getClass());
+
         Object oldInst;
 
         if(!isInnerClass) {
@@ -488,35 +499,27 @@ public class StoryTesterImpl implements StoryTester {
         for (Field f : fields) {
             f.setAccessible(true);
             Object fObj = f.get(inst);
-            boolean done = false;
             Method met;
             Constructor cons;
             Class c = f.getType();
             if(fObj == null){
                 f.set(oldInst, null);
-                done = true;
-            }
-            if(done){
-                continue;
+				continue;
             }
             if(fObj instanceof Cloneable){
                 met = c.getDeclaredMethod("clone");
+                met.setAccessible(true);
                 f.set(oldInst, met.invoke(fObj));
-                done = true;
+				continue;
             }
-            if(done){
-                continue;
-            }
+
             try{
-                cons = c.getConstructor(c);
+                cons = c.getDeclaredConstructor(c);
+                cons.setAccessible(true);
                 f.set(oldInst, cons.newInstance(fObj));
-                done = true;
-            }catch (Exception e){
-                e.printStackTrace();
-            }
-            if(done){
-                continue;
-            }
+				continue;
+            } catch (Exception ignored){ }
+
             f.set(oldInst,fObj);
         }
         return oldInst;

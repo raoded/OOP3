@@ -14,5 +14,12 @@ public class DogStoryDerivedTest extends DogStoryTest {
 		public void aDog(Integer age) {
 			dog = new Dog(age);
 		}
+
+		public class InnerInnerClass extends ClassroomStoryDerivedTest {
+			@When("a dog is in the class, number of chairs he broke is &chairs")
+			public void dogBreaksChairs(Integer chairs) {
+				classroom.numberOfStudents(chairs); }
+		}
 	}
+
 }
