@@ -152,6 +152,7 @@ public class ClassroomTest {
         }
     }
 
+    /*
     @Test
     public void backUpTest() throws Exception {
         try {
@@ -165,5 +166,6 @@ public class ClassroomTest {
             Assert.assertEquals(1, e.getNumFail());
         }
     }
+    */
 
 }

@@ -1,10 +1,17 @@
 package Tests;
 
-public class Classroom {
+public class Classroom implements Cloneable {
     private Integer freeSpace ;
 
+    /*
     public Classroom(Classroom classroom) {
         freeSpace = classroom.freeSpace;
+    }
+    */
+
+    @Override
+    public Classroom clone(){
+        return new Classroom(freeSpace);
     }
 
     public Classroom( Integer capacity) {

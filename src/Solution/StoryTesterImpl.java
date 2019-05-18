@@ -5,10 +5,7 @@ import org.junit.ComparisonFailure;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static java.util.Arrays.*;
@@ -18,16 +15,12 @@ public class StoryTesterImpl implements StoryTester {
     private static int numFail = 0;
     private static LinkedList<String> storyExpceted = new LinkedList<>(), storyResults=new LinkedList<>();
     private static Object nestedTestClassInstance;
-    private static Class<?> originalTestClass = null;
-    private static String firstSentence = "";
 
     //We use this method to clear out all of old information about former uses of StoryTester, since they are irrelevant to this one.
     private static void clearAll() {
         firstFail = false; isInnerClass = false;
         numFail = 0;
         storyExpceted = new LinkedList<>(); storyResults = new LinkedList<>();
-        originalTestClass = null;
-        firstSentence = "";
     }
 
     @Override
@@ -38,7 +31,7 @@ public class StoryTesterImpl implements StoryTester {
 
         String firstFailedSentence = "";
 
-        Object oldInst;
+        HashMap<String, Object> oldFields;
         LinkedList<String> whenSequence = new LinkedList<>();
 
         //first, we create an instance of testClass to invoke our methods
@@ -64,7 +57,7 @@ public class StoryTesterImpl implements StoryTester {
                     whenSequence.addLast(sentence);
                 } else if (anno == Then.class) {
                     //now we save the old instance of the testClass before invoking the When annotated methods
-                    oldInst = cloneObject(inst, testClass);
+                    oldFields = cloneObject(inst, testClass);
 
                     //now we run the entire When sentences that were read so far
                     runWhens(whenSequence, testClass, inst);
@@ -74,8 +67,11 @@ public class StoryTesterImpl implements StoryTester {
 
                     boolean lastIsAnyThenFailed = firstFail;
 
-                    //now we can run the current Then sentence - this call returns the instance accordingly to success of the Then clause (oldInst if failed)
-                    inst = runThen(sentence, testClass, inst, oldInst);
+                    //now we can run the current Then sentence - if the 'runThen' call returns 'false' we retrieve the old fields
+                    if(!runThen(sentence, testClass, inst)) {
+                        retrieveFields(inst,oldFields, testClass);
+                        oldFields.clear();
+                    }
 
                     //this means that the last invocation changed isAnyThenFailed from false to true, that means that this is the first Then sentence that failed
                     // so we need to start handling the storyTestException instance
@@ -91,6 +87,17 @@ public class StoryTesterImpl implements StoryTester {
         }
         finally{
             clearAll();
+        }
+    }
+
+    //this method retrieves the fields of the old instance in case of 'Then' invocation failure (comparison failure)
+    private void retrieveFields(Object inst, HashMap<String, Object> oldFields, Class<?> testClass) throws IllegalAccessException {
+        List<Field> fields = new ArrayList<>(asList(testClass.getDeclaredFields()));
+
+        for(Field f : fields) {
+            f.setAccessible(true);
+            Object obj = oldFields.get(f.getName());
+            f.set(inst,obj);
         }
     }
 
@@ -110,11 +117,7 @@ public class StoryTesterImpl implements StoryTester {
     public void testOnNestedClasses(String story, Class<?> testClass) throws Exception {
         if(story == null || testClass == null) throw new IllegalArgumentException();
 
-        originalTestClass = testClass;
-
         String first_sentence=parseStory(story).get(0);
-
-        firstSentence = first_sentence;
 
         try {
             Class<?> actual_class = findNestedClass(first_sentence, testClass);
@@ -292,7 +295,7 @@ public class StoryTesterImpl implements StoryTester {
 
 
     //This method searches a method of type Then annotation, given a sentence to run and runs it by the Then sentence methodology
-    private static Object runThen(String sentence, Class<?> testClass, Object inst, Object oldInst) throws ThenNotFoundException{
+    private static boolean runThen(String sentence, Class<?> testClass, Object inst) throws ThenNotFoundException{
         String[] splitInvocations = sentence.split(" or ");
 
 
@@ -311,7 +314,7 @@ public class StoryTesterImpl implements StoryTester {
                     storyExpceted.clear();
                     storyResults.clear();
                 }
-                return inst;
+                return true;
             }
             catch (ComparisonFailure | InvocationTargetException | IllegalAccessException e) {
                 if(!firstFail) {
@@ -329,7 +332,7 @@ public class StoryTesterImpl implements StoryTester {
 
         ++numFail;
 
-        return oldInst;
+        return false;
     }
 
     //This method return the parameters of a certain sentence in an Object[] format
@@ -467,35 +470,11 @@ public class StoryTesterImpl implements StoryTester {
         return true;
     }
 
-    //recursive method to return all fields of the class and its ancestors
-    private static List<Field> getAllFields(List<Field> fields, Class<?> type) {
-        fields.addAll(Arrays.asList(type.getDeclaredFields()));
+    private static  HashMap<String, Object> cloneObject(Object inst, Class<?> testClass)
+            throws IllegalAccessException, NoSuchMethodException, InvocationTargetException {
+        List<Field> fields = new ArrayList<>(asList(testClass.getDeclaredFields()));
+        HashMap<String, Object> fieldsValueMap = new HashMap<String, Object>();
 
-        if (type.getSuperclass() != null) {
-            getAllFields(fields, type.getSuperclass());
-        }
-
-        return fields;
-    }
-
-    private static  Object cloneObject(Object inst, Class<?> testClass)
-            throws IllegalAccessException, NoSuchMethodException, InvocationTargetException, InstantiationException, GivenNotFoundException {
-        List<Field> fields = new ArrayList<>();
-        getAllFields(fields, inst.getClass());
-
-        Object oldInst;
-
-        if(!isInnerClass) {
-            //in this case testClass is not a nested class
-            oldInst = testClass.getDeclaredConstructor().newInstance();
-        }
-        else {
-            //in this case we need to make a new nested instance using recursive method. This makes:
-            // 1. nestedTestClassInstance gets the new instance.
-            // 2. we use the oldInst variable to handle the 'new' instance
-            findNestedClass(firstSentence,originalTestClass);
-            oldInst = nestedTestClassInstance;
-        }
         for (Field f : fields) {
             f.setAccessible(true);
             Object fObj = f.get(inst);
@@ -503,25 +482,25 @@ public class StoryTesterImpl implements StoryTester {
             Constructor cons;
             Class c = f.getType();
             if(fObj == null){
-                f.set(oldInst, null);
+                fieldsValueMap.put(f.getName(),null);
 				continue;
             }
             if(fObj instanceof Cloneable){
                 met = c.getDeclaredMethod("clone");
                 met.setAccessible(true);
-                f.set(oldInst, met.invoke(fObj));
+                fieldsValueMap.put(f.getName(),met.invoke(fObj));
 				continue;
             }
 
             try{
                 cons = c.getDeclaredConstructor(c);
                 cons.setAccessible(true);
-                f.set(oldInst, cons.newInstance(fObj));
+                fieldsValueMap.put(f.getName(),cons.newInstance(fObj));
 				continue;
             } catch (Exception ignored){ }
 
-            f.set(oldInst,fObj);
+            fieldsValueMap.put(f.getName(),fObj);
         }
-        return oldInst;
+        return fieldsValueMap;
     }
 }
