@@ -91,7 +91,7 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     //this method retrieves the fields of the old instance in case of 'Then' invocation failure (comparison failure)
-    private void retrieveFields(Object inst, HashMap<String, Object> oldFields, Class<?> testClass) throws IllegalAccessException {
+    private static void retrieveFields(Object inst, HashMap<String, Object> oldFields, Class<?> testClass) throws IllegalAccessException {
         List<Field> fields = new ArrayList<>(asList(testClass.getDeclaredFields()));
 
         for(Field f : fields) {
@@ -404,14 +404,19 @@ public class StoryTesterImpl implements StoryTester {
 
     private static String parseRegularSentence(String s) {
         //separating sentence by number of parameters using the word 'and'
-        String[] andSplitter = s.split(" and");
+        String[] andSplitter = s.split(" and ");
 
         for(int i = 0; i<andSplitter.length; ++i) {
             //taking the last word in the current sentence and pushing & before it
-            String lastWord = andSplitter[i].substring(andSplitter[i].lastIndexOf(" ")+1);
-            andSplitter[i] = andSplitter[i].substring(0, andSplitter[i].lastIndexOf(" ")) + " &" + lastWord;
+            if(andSplitter[i].contains(" ")) {
+                String lastWord = andSplitter[i].substring(andSplitter[i].lastIndexOf(" ")+1);
+                andSplitter[i] = andSplitter[i].substring(0, andSplitter[i].lastIndexOf(" ")) + " &" + lastWord;
+            } else {
+                andSplitter[i] = "&" + andSplitter[i];
+            }
+
             if(i < andSplitter.length -1){
-                andSplitter[i] += " and";
+                andSplitter[i] += " and ";
             }
         }
 
@@ -443,8 +448,8 @@ public class StoryTesterImpl implements StoryTester {
     //Method to check if two strings look alike in the terms of notation string value
     // (not checking parameter types as Guy told us its not needed string-value() wise)
     private static boolean annotationIsEqual(String s1, String s2) {
-        String[] s1ParamSplitter = s1.split(" and");
-        String[] s2ParamSplitter = s2.split(" and");
+        String[] s1ParamSplitter = s1.split(" and ");
+        String[] s2ParamSplitter = s2.split(" and ");
 
         //if the number of parameters is not equal, it can't be the same annotation value
         if(s1ParamSplitter.length != s2ParamSplitter.length)
@@ -453,12 +458,13 @@ public class StoryTesterImpl implements StoryTester {
         //normlizing the values to have only '&' instead of the parameter name and values
         for(int i = 0; i < s1ParamSplitter.length; ++i) {
             //taking the last word in the current sentence and pushing & instead of it
-            s1ParamSplitter[i] = s1ParamSplitter[i].substring(0, s1ParamSplitter[i].lastIndexOf(" ")) + " &";
+            s1ParamSplitter[i] = s1ParamSplitter[i].substring(0, s1ParamSplitter[i].lastIndexOf("&")) + "&";
+
         }
 
         for(int i = 0; i < s2ParamSplitter.length; ++i) {
             //taking the last word in the current sentence and pushing & instead of it
-            s2ParamSplitter[i] = s2ParamSplitter[i].substring(0, s2ParamSplitter[i].lastIndexOf(" ")) + " &";
+            s2ParamSplitter[i] = s2ParamSplitter[i].substring(0, s2ParamSplitter[i].lastIndexOf("&")) + "&";
         }
 
         //checking if the strings are look alike

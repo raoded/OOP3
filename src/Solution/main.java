@@ -2,8 +2,11 @@ package Solution;
 //import com.sun.java.util.jar.pack.Package;
 import org.junit.ComparisonFailure;
 import java.lang.reflect.*;
+import java.util.ArrayList;
 import java.util.LinkedList;
+import java.util.List;
 
+import static java.util.Arrays.asList;
 import static org.junit.Assert.assertEquals;
 
 public class main {
@@ -66,7 +69,10 @@ public class main {
 
         */
         //System.out.println(Integer.parseInt("-42") +3 );
+        List<Field> fields = new ArrayList<>(asList(A.class.getDeclaredFields()));
 
+        for(Field f : fields)
+            System.out.println(f);
 
     }
     private static Object constructInnerInst(Class parentClass, Class findClass, Object currentInst) throws Exception {

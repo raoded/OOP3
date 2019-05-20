@@ -152,7 +152,7 @@ public class ClassroomTest {
         }
     }
 
-    /*
+
     @Test
     public void backUpTest() throws Exception {
         try {
@@ -163,9 +163,9 @@ public class ClassroomTest {
             Assert.assertEquals("Then the classroom is not-full", e.getSentance());
             Assert.assertEquals(Arrays.asList("not-full"), e.getStoryExpected());
             Assert.assertEquals(Arrays.asList("full"), e.getTestResult());
-            Assert.assertEquals(1, e.getNumFail());
+            Assert.assertEquals(2, e.getNumFail());
         }
     }
-    */
+
 
 }
